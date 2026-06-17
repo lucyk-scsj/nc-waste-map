@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NC Solid Waste Facilities — Legislative District Map</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f2; }
+  #header { background: #fff; border-bottom: 1px solid #ddd; padding: 10px 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  #header h1 { font-size: 15px; font-weight: 600; color: #1a1a1a; white-space: nowrap; }
+  .ctrl-group { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .ctrl-label { font-size: 12px; color: #666; white-space: nowrap; }
+  .toggle-set { display: flex; border: 1px solid #ccc; border-radius: 6px; overflow: hidden; }
+  .toggle-set button { padding: 5px 12px; font-size: 12px; border: none; background: #fff; color: #444; cursor: pointer; }
+  .toggle-set button.active { background: #1a4a8a; color: #fff; }
+  select { font-size: 12px; padding: 5px 8px; border: 1px solid #ccc; border-radius: 6px; background: #fff; color: #333; cursor: pointer; }
+  #map { height: calc(100vh - 115px); width: 100%; }
+  #sidebar { position: absolute; top: 70px; right: 10px; z-index: 1000; background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 12px; width: 280px; max-height: calc(100vh - 100px); overflow-y: auto; font-size: 13px; display: none; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+  #sidebar h2 { font-size: 14px; font-weight: 600; margin-bottom: 8px; color: #1a1a1a; }
+  #sidebar .close-btn { float: right; cursor: pointer; color: #999; font-size: 16px; margin-top: -2px; }
+  #sidebar .field { margin-bottom: 6px; }
+  #sidebar .field-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.05em; }
+  #sidebar .field-value { color: #222; margin-top: 1px; }
+  #sidebar .badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; margin-top: 4px; }
+  .badge-permitted { background: #e8f0fe; color: #1a4a8a; }
+  .badge-prereg { background: #fff0e8; color: #a03010; }
+  .badge-open { background: #e6f4ea; color: #1a6a30; }
+  .badge-closed { background: #f0f0f0; color: #555; }
+  #legend { background: #fff; border: 1px solid #ccc; border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+  #legend h4 { font-size: 12px; font-weight: 600; margin-bottom: 6px; color: #333; }
+  .legend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .legend-sq { width: 14px; height: 10px; flex-shrink: 0; opacity: 0.7; }
+  #stats-bar { background: #fff; border-top: 1px solid #ddd; padding: 6px 16px; display: flex; gap: 24px; font-size: 12px; color: #555; }
+  .stat-item span { font-weight: 600; color: #1a1a1a; }
+  .filter-note { font-size: 11px; color: #888; margin-left: auto; align-self: center; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <h1>NC Solid Waste Facilities &amp; Legislative Districts</h1>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Layer:</span>
+    <div class="toggle-set">
+      <button id="btn-house" class="active" onclick="setLayer('house')">House</button>
+      <button id="btn-senate" onclick="setLayer('senate')">Senate</button>
+      <button id="btn-none" onclick="setLayer('none')">No districts</button>
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Color districts by:</span>
+    <div class="toggle-set">
+      <button id="btn-lean" class="active" onclick="setColorMode('lean')">Partisan lean</button>
+      <button id="btn-count" onclick="setColorMode('count')">Facility count</button>
+    </div>
+  </div>
+  <div class="ctrl-group">
+    <span class="ctrl-label">Facilities:</span>
+    <select id="filter-type" onchange="applyFilters()">
+      <option value="all">All types</option>
+      <option value="MSW">MSW only</option>
+      <option value="CD">C&amp;D only</option>
+      <option value="LCID">LCID only</option>
+      <option value="Indus">Industrial only</option>
+      <option value="Tire">Tire only</option>
+    </select>
+    <select id="filter-status" onchange="applyFilters()">
+      <option value="all">Open + Closed</option>
+      <option value="Open">Open only</option>
+      <option value="Closed">Closed only</option>
+    </select>
+    <select id="filter-source" onchange="applyFilters()">
+      <option value="all">Permitted + Pre-reg</option>
+      <option value="permitted">Permitted only</option>
+      <option value="preregulatory">Pre-regulatory only</option>
+    </select>
+  </div>
+</div>
+
+<div id="map"></div>
+<div id="stats-bar">
+  <div class="stat-item">Showing: <span id="stat-count">—</span> facilities</div>
+  <div class="stat-item">Permitted: <span id="stat-permitted">—</span></div>
+  <div class="stat-item">Pre-regulatory: <span id="stat-prereg">—</span></div>
+  <div class="stat-item">Open: <span id="stat-open">—</span></div>
+  <div class="filter-note" id="filter-note"></div>
+</div>
+
+<div id="sidebar">
+  <span class="close-btn" onclick="closeSidebar()">✕</span>
+  <h2 id="sb-name"></h2>
+  <div id="sb-content"></div>
+</div>
+
+<script>
+const PERMITTED = $permitted_js;
+const PREREG = $prereg_js;
+
+const HOUSE_RATINGS = {1:"R+26.9",2:"D+11.7",3:"R+19.4",4:"R+20",5:"R+1.3",6:"R+20",7:"R+11",8:"D+30.1",9:"R+8.9",10:"R+13.6",11:"D+32.8",12:"R+9.2",13:"R+39.9",14:"R+26.2",15:"R+29.5",16:"R+35.2",17:"R+22.9",18:"D+26.5",19:"R+20.5",20:"R+9.4",21:"D+26.8",22:"R+19.9",23:"D+16.4",24:"R+0.2",25:"D+0.6",26:"R+14.1",27:"D+19.4",28:"R+34.6",29:"D+69.9",30:"D+73.1",31:"D+61.8",32:"D+4.7",33:"D+45.1",34:"D+31.2",35:"R+5.2",36:"D+10.2",37:"R+6.2",38:"D+67.6",39:"D+25.7",40:"D+26.4",41:"D+35.7",42:"D+53.2",43:"R+11.6",44:"D+24.5",45:"D+17.7",46:"R+27.1",47:"R+8.5",48:"D+6.7",49:"D+44.6",50:"D+16.9",51:"R+21.9",52:"R+15.3",53:"R+27.3",54:"D+8.9",55:"R+21.4",56:"D+74.3",57:"D+35",58:"D+54.3",59:"R+12",60:"D+27.7",61:"D+54.3",62:"R+8.6",63:"R+7.4",64:"R+10.4",65:"R+32.4",66:"D+28.8",67:"R+46.2",68:"R+22.4",69:"R+27.3",70:"R+53.4",71:"D+38.9",72:"D+50.2",73:"R+8.1",74:"R+10.7",75:"R+14.5",76:"R+23.9",77:"R+52.7",78:"R+48.9",79:"R+23.8",80:"R+51",81:"R+44.2",82:"R+11.7",83:"R+33.9",84:"R+35.1",85:"R+46.4",86:"R+38.8",87:"R+47.4",88:"D+42.8",89:"R+49.8",90:"R+53",91:"R+33.1",92:"D+40.8",93:"R+15.1",94:"R+54.7",95:"R+29.6",96:"R+26.9",97:"R+45.8",98:"D+0.7",99:"D+70",100:"D+29.5",101:"D+38.1",102:"D+52.2",103:"D+14.5",104:"D+18.1",105:"R+3.4",106:"D+53.9",107:"D+69.7",108:"R+32.7",109:"R+18.1",110:"R+30.8",111:"R+46.3",112:"D+59.5",113:"R+32.3",114:"D+13.1",115:"R+6.9",116:"D+61",117:"R+17.4",118:"R+23.8",119:"R+12.6",120:"R+47.9"};
+const SENATE_RATINGS = {1:"R+10.5",2:"R+14",3:"R+17.7",4:"R+7.4",5:"D+12.1",6:"R+31.8",7:"R+4.8",8:"R+15.8",9:"R+23.4",10:"R+23.8",11:"R+1.3",12:"R+21.4",13:"D+1.6",14:"D+50.8",15:"D+38.1",16:"D+36.1",17:"D+29.8",18:"R+2.1",19:"D+31.6",20:"D+44.8",21:"R+21.2",22:"D+59.9",23:"D+32.6",24:"R+5.3",25:"R+19.8",26:"R+22.5",27:"D+20.2",28:"D+53.7",29:"R+34.3",30:"R+47.3",31:"R+23",32:"D+40.3",33:"R+41",34:"R+11.2",35:"R+25.5",36:"R+55.3",37:"R+27.2",38:"D+36.6",39:"D+35.5",40:"D+54.6",41:"D+57.3",42:"D+3.9",43:"R+24.9",44:"R+40.8",45:"R+41.4",46:"R+31.2",47:"R+27.9",48:"R+28.2",49:"D+33.9",50:"R+28.8"};
+
+function parseRating(r) {
+  if (!r) return {party:'?', margin:0};
+  const m = r.match(/([RD])\+([0-9.]+)/);
+  if (!m) return {party:'?', margin:0};
+  return {party: m[1], margin: parseFloat(m[2])};
+}
+
+function leanColor(rating) {
+  const {party, margin} = parseRating(rating);
+  if (margin < 5) return '#9fc97f';
+  if (party === 'D') return margin >= 15 ? '#2166ac' : '#74add1';
+  if (party === 'R') return margin >= 15 ? '#d73027' : '#f4a582';
+  return '#ccc';
+}
+
+function countColor(n) {
+  if (n === 0) return '#f0f0f0';
+  if (n < 3) return '#fef0d9';
+  if (n < 7) return '#fdcc8a';
+  if (n < 15) return '#fc8d59';
+  return '#d7301f';
+}
+
+const map = L.map('map').setView([35.5, -79.5], 7);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+
+const legend = L.control({position: 'bottomleft'});
+legend.onAdd = function() {
+  const d = L.DomUtil.create('div', '');
+  d.id = 'legend';
+  return d;
+};
+legend.addTo(map);
+
+let districtLayer = null;
+let markerLayer = L.layerGroup().addTo(map);
+let currentLayer = 'house';
+let currentColorMode = 'lean';
+let allFacilities = [];
+let filteredFacilities = [];
+let districtGeo = {};
+
+// Combine datasets
+PERMITTED.forEach(f => f.dataset = 'permitted');
+PREREG.forEach(f => { f.dataset = 'preregulatory'; f.waste_type = f.waste_type || 'Unknown'; f.status = f.status || 'Unknown'; });
+allFacilities = [...PERMITTED, ...PREREG];
+
+function facilityColor(f) {
+  if (f.dataset === 'preregulatory') return '#c0392b';
+  const wt = f.waste_type;
+  if (wt === 'MSW') return '#1a4a8a';
+  if (wt === 'CD') return '#6d3a8f';
+  if (wt === 'LCID') return '#1a7a4a';
+  if (wt === 'Indus') return '#8a5a00';
+  if (wt === 'Tire') return '#555';
+  return '#888';
+}
+
+function facilityIcon(f) {
+  const c = facilityColor(f);
+  const opacity = f.status === 'Closed' ? 0.4 : 1.0;
+  return L.circleMarker([f.lat, f.lng], {
+    radius: f.dataset === 'preregulatory' ? 5 : 6,
+    fillColor: c,
+    color: '#fff',
+    weight: 1,
+    opacity: 1,
+    fillOpacity: opacity
+  });
+}
+
+function applyFilters() {
+  const typeF = document.getElementById('filter-type').value;
+  const statF = document.getElementById('filter-status').value;
+  const srcF = document.getElementById('filter-source').value;
+
+  filteredFacilities = allFacilities.filter(f => {
+    if (typeF !== 'all' && f.waste_type !== typeF) return false;
+    if (statF !== 'all' && f.status !== statF) return false;
+    if (srcF !== 'all' && f.dataset !== srcF) return false;
+    return true;
+  });
+
+  markerLayer.clearLayers();
+  filteredFacilities.forEach(f => {
+    const marker = facilityIcon(f);
+    marker.on('click', () => showSidebar(f));
+    markerLayer.addLayer(marker);
+  });
+
+  updateStats();
+  if (currentColorMode === 'count') updateDistrictColors();
+  updateLegend();
+}
+
+function updateStats() {
+  const total = filteredFacilities.length;
+  const perm = filteredFacilities.filter(f => f.dataset === 'permitted').length;
+  const pre = filteredFacilities.filter(f => f.dataset === 'preregulatory').length;
+  const open = filteredFacilities.filter(f => f.status === 'Open').length;
+  document.getElementById('stat-count').textContent = total.toLocaleString();
+  document.getElementById('stat-permitted').textContent = perm.toLocaleString();
+  document.getElementById('stat-prereg').textContent = pre.toLocaleString();
+  document.getElementById('stat-open').textContent = open.toLocaleString();
+}
+
+function setLayer(l) {
+  currentLayer = l;
+  ['btn-house','btn-senate','btn-none'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById('btn-' + l).classList.add('active');
+  loadDistrictLayer();
+}
+
+function setColorMode(m) {
+  currentColorMode = m;
+  document.getElementById('btn-lean').classList.toggle('active', m === 'lean');
+  document.getElementById('btn-count').classList.toggle('active', m === 'count');
+  updateDistrictColors();
+  updateLegend();
+}
+
+function districtCountMap() {
+  const counts = {};
+  filteredFacilities.forEach(f => {
+    // Use county as proxy for district (placeholder until crosswalk data loaded)
+    // Real implementation would use point-in-polygon
+  });
+  return counts;
+}
+
+async function loadDistrictLayer() {
+  if (districtLayer) { map.removeLayer(districtLayer); districtLayer = null; }
+  if (currentLayer === 'none') { updateLegend(); return; }
+
+  const urls = {
+    house: 'https://cdn.jsdelivr.net/gh/datadesk/california-2016-election-results@main/results/president-county.json',
+  };
+
+  // Use NC GIS boundary data via public API
+  const ncBounds = {
+    house: 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/NC_House_Districts/FeatureServer/0/query?where=1%3D1&outFields=DISTRICT&outSR=4326&f=geojson',
+    senate: 'https://services.arcgis.com/VTyQ9soqVukalItT/arcgis/rest/services/NC_Senate_Districts/FeatureServer/0/query?where=1%3D1&outFields=DISTRICT&outSR=4326&f=geojson'
+  };
+
+  // Try to load from NCLEG/public source
+  const ratings = currentLayer === 'house' ? HOUSE_RATINGS : SENATE_RATINGS;
+
+  try {
+    // Try NC OneMap or similar
+    const url = `https://opendata.arcgis.com/datasets/NhouseDistricts.geojson`;
+    // fallback to drawing county-level approximation if GIS unavailable
+    showCountyFallback(ratings);
+  } catch(e) {
+    showCountyFallback(ratings);
+  }
+}
+
+function showCountyFallback(ratings) {
+  // Without a live GIS call, show a clear message and still let facilities work
+  document.getElementById('filter-note').textContent = 'District boundaries: connect to NC GIS to load (see README)';
+  updateLegend();
+}
+
+function updateDistrictColors() {
+  if (!districtLayer) return;
+  const ratings = currentLayer === 'house' ? HOUSE_RATINGS : SENATE_RATINGS;
+  districtLayer.eachLayer(layer => {
+    const distNum = layer.feature && (layer.feature.properties.DISTRICT || layer.feature.properties.district);
+    if (!distNum) return;
+    let fill;
+    if (currentColorMode === 'lean') {
+      fill = leanColor(ratings[distNum]);
+    } else {
+      // count facilities per district — use lat/lng bounding box approximation
+      fill = '#ccc';
+    }
+    layer.setStyle({ fillColor: fill, fillOpacity: 0.55 });
+  });
+}
+
+function updateLegend() {
+  const el = document.getElementById('legend');
+  if (currentColorMode === 'lean') {
+    el.innerHTML = `<h4>Partisan lean (FEF)</h4>
+      <div class="legend-row"><div class="legend-sq" style="background:#2166ac"></div>Safe D (15pt+)</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#74add1"></div>Lean D (5–15pt)</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#9fc97f"></div>Competitive (&lt;5pt)</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#f4a582"></div>Lean R (5–15pt)</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#d73027"></div>Safe R (15pt+)</div>
+      <hr style="margin:6px 0;border-color:#eee">
+      <h4>Facilities</h4>
+      <div class="legend-row"><div class="legend-dot" style="background:#1a4a8a"></div>MSW (permitted)</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#6d3a8f"></div>C&amp;D (permitted)</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#1a7a4a"></div>LCID (permitted)</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#8a5a00"></div>Industrial (permitted)</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#c0392b"></div>Pre-regulatory</div>
+      <div class="legend-row" style="color:#999;font-size:11px">Faded = closed facility</div>`;
+  } else {
+    el.innerHTML = `<h4>Facility count per district</h4>
+      <div class="legend-row"><div class="legend-sq" style="background:#f0f0f0"></div>0</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#fef0d9"></div>1–2</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#fdcc8a"></div>3–6</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#fc8d59"></div>7–14</div>
+      <div class="legend-row"><div class="legend-sq" style="background:#d7301f"></div>15+</div>`;
+  }
+}
+
+function showSidebar(f) {
+  document.getElementById('sidebar').style.display = 'block';
+  document.getElementById('sb-name').textContent = f.name || f.SITENAME || 'Unknown facility';
+  const isPermitted = f.dataset === 'permitted';
+  const statusBadge = f.status === 'Open' ? 'badge-open' : 'badge-closed';
+  let html = `
+    <div class="field">
+      <span class="badge ${isPermitted ? 'badge-permitted' : 'badge-prereg'}">${isPermitted ? 'Permitted' : 'Pre-regulatory'}</span>
+      <span class="badge ${statusBadge}" style="margin-left:4px">${f.status || '—'}</span>
+    </div>`;
+  if (isPermitted) {
+    html += `
+    <div class="field"><div class="field-label">Permit ID</div><div class="field-value">${f.permit || '—'}</div></div>
+    <div class="field"><div class="field-label">Waste type</div><div class="field-value">${f.waste_type || '—'}</div></div>
+    <div class="field"><div class="field-label">Permit status</div><div class="field-value">${f.permit_status || '—'}</div></div>`;
+  } else {
+    html += `
+    <div class="field"><div class="field-label">EPA ID</div><div class="field-value">${f.id || '—'}</div></div>
+    <div class="field"><div class="field-label">Site status</div><div class="field-value">${f.status || '—'}</div></div>
+    <div class="field"><div class="field-label">NFA restriction</div><div class="field-value">${f.nfa || '—'}</div></div>
+    <div class="field"><div class="field-label">DEQ contact</div><div class="field-value">${f.contact || '—'}</div></div>`;
+  }
+  html += `
+    <div class="field"><div class="field-label">Address</div><div class="field-value">${f.address || '—'}, ${f.city || '—'}</div></div>
+    <div class="field"><div class="field-label">County</div><div class="field-value">${(f.county || f.SITECOUNTY || '—')}</div></div>
+    <div class="field"><div class="field-label">Coordinates</div><div class="field-value">${f.lat}, ${f.lng}</div></div>`;
+  document.getElementById('sb-content').innerHTML = html;
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').style.display = 'none';
+}
+
+// Initialize
+applyFilters();
+loadDistrictLayer();
+updateLegend();
+</script>
+</body>
+</html>
